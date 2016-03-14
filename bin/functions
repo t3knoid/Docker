@@ -1,0 +1,128 @@
+# Returns 0 if a given container is started
+Container_Is_Running() {
+  docker inspect --format="{{ .State.Running }}" $1  >/dev/null 2>&1 
+  echo $?
+}
+
+# Returns 0 if a given container is running, returns -1 if it has not been started
+Container_Is_Up() {
+  UP=$(docker inspect --format="{{ .State.Running }}" $1)
+  if [ "$UP" == "true" ]; then
+    echo 0      
+   else
+    echo 1
+  fi
+}
+
+# Returns container running status
+Container_Status() {
+  RUNNING=$(docker inspect --format="{{ .State.Running }}" $1) 
+  if [ $? -eq 0 ]; then
+    case $RUNNING in
+      false )
+        status="down"
+        ;;
+      true )
+        status="up"
+        ;;
+      * )
+        GHOST=$(docker inspect --format="{{ .State.Ghost }}" $1)
+        if [ "$GHOST" == "true" ]; then
+           status="ghost"
+        fi        
+        ;;
+    esac
+  else
+    status="not running"
+  fi
+  echo $status
+}
+
+# Removes a given container. Returns 0 if removal is successful.
+Container_Remove() {
+  docker rm $1  >/dev/null 2>&1
+  if [ "$(Container_Is_Running $1)" == "1" ]; then   # Check if container is running
+    echo 0                                           # Returns 0 (success) if its not running
+  else
+    echo 1                                           # Returns 1 (fail) if it is running
+  fi
+}
+
+# Prints the image of a given container 
+Container_Image() {
+  # Find the line containing the container name and print the string in the second column
+  docker ps -ls |  grep  "[* ^]${1}[$ ]" |  awk '{print $2}' 
+}
+
+# Prints the tag of a given container image
+Image_Tag() (
+  ci=$1
+  echo ${ci##*:}      # Print out the string to the right of the last colon
+)
+
+# Prints the repository of a given container image
+Image_Repository() {
+  ci=$1
+  echo ${ci%:*}       # Print out the string to the left of the last colon
+}
+
+# Returns 0 if the image exist for a given repository and tag
+Image_Exists() {
+  docker images | grep "^$1" | awk '{print $2}' | grep "^$2"  >/dev/null 2>&1
+  echo $?
+}
+
+# Returns 0 if the image exist for a given Container
+Container_Image_Exists() {
+  Image_Exists $(Image_Repository $(Container_Image $1)) $(Image_Tag $(Container_Image $1))
+  return $?
+}
+
+# Removes a given image with an optional registry, and tag
+# Usage: Image_Remove name [registry] [tag]
+Image_Remove() {
+  NAME=$1
+  REGISTRY=$2
+  TAG=$3
+ 
+  [ -z "$NAME" ] && echo "Image name not specified, exiting" && return 1     # Name not specified return error
+  [ -z $REGISTRY && -z $TAG ] && docker rmi $NAME && return 0                # Only the name is specfied
+  [ -z $REGISTRY && -n $TAG ] && docker rmi $REGISTRY/$NAME && return 0      # Tag is not specified
+  [ -n $REGISTRY && -n $TAG ] && docker rmi $REGISTRY/$NAME:$TAG && return 0 # Tag is not specified
+}
+
+
+# Delete a given container image. Returns 0 if delete is successful.
+Container_RemoveImage() {
+  ci=$(Container_Image $1)                              # store container image value
+  if [ "$(Container_Remove $1)" == "0" ] ; then         # remove container first
+    docker rmi $ci                                      # if removing container is successful, remove image
+    if [ "$(Image_Exists $(Image_Repository $ci) $(Image_Tag $ci))" == "0" ]; then  # Check if image exists after deleting
+      echo 1                                            # Return a 1 if image still exist (failure)
+    else
+      echo 0                                            # Return a 0 if image is not found (success)
+    fi
+  else
+    echo 1
+  fi
+}
+
+# Print a container's IP address
+Container_IPAddress() {
+  docker inspect --format '{{ .NetworkSettings.IPAddress }}' $1
+}
+
+# Print a container's port mapping
+Container_Port(){
+  docker port $1
+}
+
+# Delete all containers
+RemoveAllContainers() {
+  docker rm $(docker ps -a -q)
+}
+
+# Delete all images
+RemoveAllImages() {
+  docker rmi $(docker images -a -q)
+}

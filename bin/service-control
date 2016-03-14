@@ -1,0 +1,79 @@
+#!/bin/sh
+
+# Make sure we are the docker user
+USERNAME=`id -u -n`
+[ $USERNAME != "docker" ] && echo "You must be user docker to run this script" && exit 1
+
+# Folders
+BIN_DIR=~/bin                                                                # Executable binaries are located here
+CONF_DIR=$BIN_DIR/conf                                                        # Configuration file location
+CONTAINER=$(basename $0)                                                     # Container name is the name of the script
+
+# User configurable settings
+[ -f $CONF_DIR/$CONTAINER.conf ] &&  . $CONF_DIR/$CONTAINER.conf             # Container configuration file
+[ -z $TAG ] && TAG=latest                                                    # Tag name 
+[ -z $REGISTRY ] && REGISTRY=localhost:5000                                  # Registry can be set externally
+[ -z $IMAGEFILE ] && IMAGEFILE=$CONTAINER:$TAG                               # Image file can be set externally
+
+IMAGE=$REGISTRY/$IMAGEFILE                                                   # Image name
+
+# Commands
+RUN_COMMAND="docker run -d --name $CONTAINER $RUN_OPTIONS $IMAGE"            # Command to initially start a container
+START_COMMAND="docker start $CONTAINER"                                      # Command to start an idle container
+STOP_COMMAND="docker stop $CONTAINER"                                        # Command to stop a container
+ATTACH_COMMAND="docker exec -i -t $CONTAINER bash"                           # Attach to a container console
+
+# Load shared functions
+[ ! -f $BIN_DIR/functions ] && exit 1
+. $BIN_DIR/functions                                                         # Load external functions
+
+case "$1" in
+  start)
+        echo $RUN_COMMAND
+        if [ "$(Container_Is_Running $CONTAINER)" -eq "0" ]; then                 # Container running 
+          $START_COMMAND >/dev/null 2>&1                                     # Start container
+        else                                                                 # Container is not running
+          $RUN_COMMAND >/dev/null 2>&1                                       # Run container 
+        fi
+        if [ "$(Container_Is_Up $CONTAINER)" -eq "0" ]; then                 # Check if container is up
+          echo "$CONTAINER is up"
+        else
+          echo "$CONTAINER is down"
+        fi
+        ;;
+  stop)
+        if [ "$(Container_Is_Up $CONTAINER)" -eq "0" ]; then                 # Container is up
+           $STOP_COMMAND >/dev/null 2>&1                                     # Stop container
+        fi
+        if [ "$(Container_Is_Up $CONTAINER)" -eq "1" ]; then                 # Check if container is down
+           echo "$CONTAINER down"
+        fi
+        ;;
+  restart)
+        $0 stop                                                              # Stop container
+        $0 start                                                             # Start container
+        ;;
+  status)
+        echo "$CONTAINER is $(Container_Status ${CONTAINER})"                # Show container status
+        echo "Ip addresss is $(Container_IPAddress ${CONTAINER})"            # Show container IP address
+        echo "Port mapping is $(Container_Port ${CONTAINER})"                # Show container port mapping
+        ;;
+  remove)
+        $0 stop                                                              # Stop container
+        if [ "$(Container_Remove $CONTAINER)" -eq "0" ]; then                # Remove container and check if successful
+          echo $CONTAINER removed
+        fi
+        ;;
+  console)
+        if [ "$(Container_Is_Up $CONTAINER)" -eq "0" ]; then                  # Check if container is up before we try to attach to its console
+           $ATTACH_COMMAND                                                   # Attache to container console
+        else
+           echo $CONTAINER is down. 
+        fi
+        ;;
+  *)
+        echo $"Usage: $0 {start|stop|status|restart|remove|console}"
+        exit 2
+
+esac
+

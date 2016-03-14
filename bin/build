@@ -1,0 +1,102 @@
+#!/bin/sh
+
+# Make sure we are the docker user
+USERNAME=`id -u -n`
+[ $USERNAME != "docker" ] && echo "You must be user docker to run this script" && exit 1
+DOCKERFILE_DIR=~/etc/docker/dockerfile
+OUT_DIR=~/outgoing
+DOCKERFILE_DIR=/home/docker/etc/docker/dockerfile
+OUT_DIR=/home/docker/outgoing
+SAVEIMAGE=0
+NAME=
+REGISTRY=
+TAG=
+
+usage()
+{
+  echo "usage: $0 -n image [-s] [-t tag] [-r registry] [-h]"
+  echo ""
+  echo "       -n, --name      Specify name of image to ild."
+  echo "       -r, --registry  Specify an optional name of a registry to use."
+  echo "                       Defaults to localhost:5000"
+  echo "       -t, --tag       Specify an optional name of a tag to use."
+  echo "                       Defaults to latest."
+  echo "       -s, --save      optionally save image after creation"
+  exit 1
+}
+
+# Parse command-line
+while [[ $# > 0 ]]
+do
+key="$1"
+  case $key in
+    -n|--name)
+      NAME="$2"
+      shift # past argument
+      ;;
+    -s|--save)
+      SAVEIMAGE=1
+      ;;
+    -r|--registry)
+      REGISTRY="$2"
+      shift 
+      ;;
+    -t|--tag)
+      TAG="$2"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option specified, $key"
+      usage
+      exit 1
+      ;;
+  esac
+shift # past argument or value
+done
+# Make sure image name has been specified
+[ -z $NAME ] && echo "Image name was not specified. Exiting" && usage && exit 1
+[ -z $TAG ] && echo "Tag not specified" && usage && exit 1
+
+# Set defaults
+[ -z $REGISTRY ] && REGISTRY=localhost:5000 && echo "Setting registry to localhost:5000"
+#[ -z $TAG ] && TAG=latest && echo "Setting tag to latest"
+# Start process
+echo "Build process start"
+LATEST=latest
+# Remove latest tag
+docker rmi $REGISTRY/$NAME:$LATEST
+docker rmi $REGISTRY/$NAME:$TAG
+
+# Build image
+echo "Building image $REGISTRY/$NAME:$TAG"
+docker build --rm=true -t $REGISTRY/$NAME:$TAG $DOCKERFILE_DIR/$NAME
+echo "Pushing image $REGISTRY/$NAME:$TAG"
+echo docker push $REGISTRY/$NAME:$TAG
+
+# Tag recently built Docker image as latest
+docker tag localhost:5000/$NAME:$TAG localhost:5000/$NAME:$LATEST
+
+# Optionally save image to a tar file
+# Move latest tar out of the way
+if [ -f $OUT_DIR/${NAME}_$LATEST.tar ]; then
+  LATEST_TAR=$(find ~/outgoing -lname $NAME_$LATEST.tar)
+  rm -fr $LATEST_TAR
+  mv $LATEST_TAR.tar $OUT_DIR/$NAME_$LATEST.tar
+  mv $LATEST_TAR.tar.md5 $OUT_DIR/$NAME_$LATEST.tar.md5
+fi
+
+# Make sure file is group writable and world readable
+if [ $SAVEIMAGE == 1 ]; then
+  echo "Saving image $REGISTRY/$NAME:$LATEST to $OUT_DIR/${NAME}_$LATEST.tar"
+  docker save -o $OUT_DIR/${NAME}_${LATEST}.tar ${REGISTRY}/${NAME}:${LATEST}
+  md5sum $OUT_DIR/${NAME}_${LATEST}.tar > $OUT_DIR/${NAME}_${LATEST}.tar.md5
+  chmod 664 $OUT_DIR/${NAME}_${LATEST}.tar*
+  ln -f -s $OUT_DIR/${NAME}_$LATEST.tar $OUT_DIR/${NAME}_$TAG.tar
+  ln -f -s $OUT_DIR/${NAME}_$LATEST.tar.md5 $OUT_DIR/${NAME}_$TAG.tar.md5
+fi
+echo "Build process end"
+exit 0

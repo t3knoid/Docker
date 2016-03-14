@@ -1,0 +1,72 @@
+#!/bin/sh
+
+# Make sure we are the docker user
+#USERNAME=`id -u -n`
+#[ $USERNAME != "docker" ] && echo "You must be user docker to run this script" && exit 1
+OUT_DIR=/home/docker/outgoing
+SAVEIMAGE=0
+NAME=
+REGISTRY=
+TAG=
+
+usage()
+{
+  echo "usage: $0 -n image [-s] [-t tag] [-r registry] [-h]"
+  echo ""
+  echo "       -n, --name      Specify name of image to remove."
+  echo "       -r, --registry  Specify an optional name of a registry to use."
+  echo "                       Defaults to localhost:5000"
+  echo "       -t, --tag       Specify an optional name of a tag to use."
+  echo "                       Defaults to latest."
+  exit 1
+}
+
+# Parse command-line
+while [[ $# > 1 ]]
+do
+key="$1"
+  case $key in
+    -n|--name)
+      NAME="$2"
+      shift # past argument
+      ;;
+    -r|--registry)
+      REGISTRY="$2"
+      shift 
+      ;;
+    -t|--tag)
+      TAG="$2"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option specified, $key"
+      usage
+      exit 1
+      ;;
+  esac
+shift # past argument or value
+done
+# Make sure image name has been specified
+[ -z $NAME ] && echo "Image name was not specified. Exiting" && usage && exit 1
+
+# Set registry to default if not specified
+[ -z $REGISTRY ] && REGISTRY=localhost:5000 && echo "Setting registry to localhost:5000"
+
+# Remove image of given name and tag
+# If tag is not specified, remove all images of given name 
+echo "Cleaning image start"
+if [ -z $TAG ] ; then
+  echo "Removing  all images of $REGISTRY/$NAME" 
+  docker rmi $(docker images -q ${REGISTRY}/${NAME})
+  rm -fr $OUT_DIR/$NAME*.*
+else
+  echo "Removing  images $REGISTRY/$NAME:TAG" 
+  docker rmi $(docker images -q $REGISTRY/$NAME:$TAG)
+  rm -fr $OUT_DIR/$NAME_$TAG*.*
+fi
+
+exit 0
